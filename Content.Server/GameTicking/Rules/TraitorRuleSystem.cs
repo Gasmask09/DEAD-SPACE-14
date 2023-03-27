@@ -224,13 +224,14 @@ public sealed class TraitorRuleSystem : GameRuleSystem
             if (_sponsors.TryGetInfo(player.UserId, out var sponsor) && sponsor.HavePriorityAntag)
 			{
 				sponsorPrefList.Add(player);
-				prefList.Remove(player);
 			}
         }
 		
 		while (sponsorPrefList.Count > 0 && traitorCount > 0)
 		{
-			results.Add(_random.PickAndTake(sponsorPrefList));
+            player = _random.PickAndTake(sponsorPrefList)
+            prefList.Remove(player);
+			results.Add(player);
 			traitorCount -= 1;
 		}
 		if (traitorCount == 0) return results;

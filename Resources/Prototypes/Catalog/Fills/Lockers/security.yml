@@ -24,6 +24,7 @@
       - id: DoorRemoteArmory
       - id: ClothingOuterHardsuitWarden
       - id: BookCorpLawFull
+      - id: HoloprojectorSecurity
 
 - type: entity
   id: LockerSecurityFilled

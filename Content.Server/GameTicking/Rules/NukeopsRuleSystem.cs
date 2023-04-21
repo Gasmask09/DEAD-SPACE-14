@@ -21,6 +21,7 @@ using Content.Server.Traits.Assorted;
 using Content.Server.Corvax.Sponsors;
 using Content.Shared.CombatMode.Pacification;
 using Content.Shared.Dataset;
+using Content.Shared.Humanoid.Prototypes;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Nuke;
@@ -34,7 +35,6 @@ using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Robust.Shared.Utility;
-using Content.Shared.Humanoid.Prototypes;
 
 namespace Content.Server.GameTicking.Rules;
 
@@ -243,6 +243,17 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
         }
     }
 
+    public void LoadLoneOpsConfig()
+    {
+        _nukeopsRuleConfig.SpawnOutpost = false;
+        _nukeopsRuleConfig.EndsRound = false;
+    }
+
+    public bool CheckLoneOpsSpawn()
+    {
+        return _nukeopsRuleConfig.CanLoneOpsSpawn;
+    }
+
     private void OnRoundStart()
     {
         // TODO: This needs to try and target a Nanotrasen station. At the very least,
@@ -392,7 +403,7 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
 
     private void CheckRoundShouldEnd()
     {
-        if (!RuleAdded || RuleWinType == WinType.CrewMajor || RuleWinType == WinType.OpsMajor)
+        if (!RuleAdded || !_nukeopsRuleConfig.EndsRound || RuleWinType == WinType.CrewMajor || RuleWinType == WinType.OpsMajor)
             return;
 
         // If there are any nuclear bombs that are active, immediately return. We're not over yet.
@@ -464,6 +475,12 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
     {
         if (!RuleAdded)
             return;
+
+        if (!SpawnMap())
+        {
+            Logger.InfoS("nukies", "Failed to load map for nukeops");
+            return;
+        }
 
         // Basically copied verbatim from traitor code
         var playersPerOperative = _nukeopsRuleConfig.PlayersPerOperative;
@@ -622,8 +639,11 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
 
         var mind = mindComponent.Mind;
 
-        if (_operativeMindPendingData.TryGetValue(uid, out var role))
+        if (_operativeMindPendingData.TryGetValue(uid, out var role) || !_nukeopsRuleConfig.SpawnOutpost || !_nukeopsRuleConfig.EndsRound)
         {
+            if (role == null)
+                role = _nukeopsRuleConfig.OperativeRoleProto;
+
             mind.AddRole(new TraitorRole(mind, _prototypeManager.Index<AntagPrototype>(role)));
             _operativeMindPendingData.Remove(uid);
         }
@@ -651,6 +671,11 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
     {
         if (_nukiePlanet != null)
             return true; // Map is already loaded.
+
+        if (!_nukeopsRuleConfig.SpawnOutpost)
+            return true;
+
+        _nukeopsRuleConfig.CanLoneOpsSpawn = false;
 
         var path = _nukeopsRuleConfig.NukieOutpostMap;
         var shuttlePath = _nukeopsRuleConfig.NukieShuttleMap;
@@ -814,9 +839,10 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
             else if (addSpawnPoints)
             {
                 var spawnPoint = EntityManager.SpawnEntity(_nukeopsRuleConfig.GhostSpawnPointProto, _random.Pick(spawns));
-                var spawner = EnsureComp<GhostRoleMobSpawnerComponent>(spawnPoint);
-                spawner.RoleName = Loc.GetString(nukeOpsAntag.Name);
-                spawner.RoleDescription = Loc.GetString(nukeOpsAntag.Objective);
+                var ghostRole = EnsureComp<GhostRoleComponent>(spawnPoint);
+                EnsureComp<GhostRoleMobSpawnerComponent>(spawnPoint);
+                ghostRole.RoleName = Loc.GetString(nukeOpsAntag.Name);
+                ghostRole.RoleDescription = Loc.GetString(nukeOpsAntag.Objective);
 
                 var nukeOpSpawner = EnsureComp<NukeOperativeSpawnerComponent>(spawnPoint);
                 nukeOpSpawner.OperativeName = spawnDetails.Name;
@@ -828,6 +854,11 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
 
     private void SpawnOperativesForGhostRoles()
     {
+        if (!SpawnMap())
+        {
+            Logger.InfoS("nukies", "Failed to load map for nukeops");
+            return;
+        }
         // Basically copied verbatim from traitor code
         var playersPerOperative = _nukeopsRuleConfig.PlayersPerOperative;
         var maxOperatives = _nukeopsRuleConfig.MaxOperatives;
@@ -898,13 +929,6 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
             _operativeNames.Add(proto, new List<string>(_prototypeManager.Index<DatasetPrototype>(proto).Values));
         }
 
-
-        if (!SpawnMap())
-        {
-            Logger.InfoS("nukies", "Failed to load map for nukeops");
-            return;
-        }
-
         // Add pre-existing nuke operatives to the credit list.
         var query = EntityQuery<NukeOperativeComponent, MindComponent>(true);
         foreach (var (_, mindComp) in query)
@@ -919,5 +943,10 @@ public sealed class NukeopsRuleSystem : GameRuleSystem
             SpawnOperativesForGhostRoles();
     }
 
-    public override void Ended() { }
+    public override void Ended()
+    {
+        _nukeopsRuleConfig.EndsRound = true;
+        _nukeopsRuleConfig.SpawnOutpost = true;
+        _nukeopsRuleConfig.CanLoneOpsSpawn = true;
+    }
 }
